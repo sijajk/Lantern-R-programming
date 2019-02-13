@@ -1,0 +1,576 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+#Loadingg libraries
+library(quantmod)
+library(xts)
+library(fitdistrplus)
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(gridExtra)
+library(dygraphs)
+library(ggcorrplot)
+library(devtools)
+library(ggbiplot)
+library(zoo)
+library(yuima)
+library(sde)
+library(Sim.DiffProc)
+
+rm(list=ls())
+
+```
+```{r}
+
+#Getting data from FRED website
+usd.tenor = c("USD1MTD156N","USD3MTD156N","USD6MTD156N","USD12MD156N")
+getSymbols(usd.tenor, src = "FRED")
+
+cad.tenor = c("CAD1MTD156N","CAD3MTD156N","CAD6MTD156N","CAD12MD156N")
+getSymbols(cad.tenor, src = "FRED")
+
+##Combining the USD AND CAD tenor data into a respective DF
+usd.data = cbind(USD1MTD156N,USD3MTD156N,USD6MTD156N,USD12MD156N)
+cad.data = cbind(CAD1MTD156N,CAD3MTD156N,CAD6MTD156N,CAD12MD156N)
+
+#summary(usd.data)
+#summary(cad.data)
+```
+
+```{r}
+
+
+```
+
+```{r}
+##Finding gaps in dates and jumps in IR rates
+
+#checking if there is any gap in dates for more than 3 days 
+diff.usd.dates <- diff(zoo::index(usd.data))
+diff.cad.dates <- diff(zoo::index(cad.data))
+
+for (i in diff.usd.dates){
+  if (i > 3){
+    print("There is gap of more than 3 days in dates")
+  }
+}
+count <- 0
+for (i in diff.cad.dates){
+  if (i > 5){
+    count = count +1
+  }
+}
+print("Gaps in CAD dates found:")
+print(count)
+
+#Finding jumps in IR and plotting the difference
+#USD
+usd.ir.jumps = diff(usd.data, lag=250)
+usd.ir.jumps[is.na(usd.ir.jumps)] <- 0
+
+par(mfrow=c(2,2),oma=c(0,0,2,0))
+plot(usd.ir.jumps$USD1MTD156N,main = "1M tenor",xlab= "Date", ylab = 'Diff of IR')
+plot(usd.ir.jumps$USD3MTD156N,main = "3M tenor",xlab= "Date", ylab = 'Diff of IR')
+plot(usd.ir.jumps$USD6MTD156N,main = "6M tenor",xlab= "Date", ylab = 'Diff of IR')
+plot(usd.ir.jumps$USD12MD156N,main = "12M tenor",xlab= "Date", ylab = 'Diff of IR')
+title("Interest rate jumps - USD", outer=TRUE) 
+
+#CAD
+cad.ir.jumps = diff(cad.data, lag=250)
+cad.ir.jumps[is.na(cad.ir.jumps)] <- 0
+
+par(mfrow=c(2,2),oma=c(0,0,2,0))
+plot(cad.ir.jumps$CAD1MTD156N, main = "1M tenor",xlab= "Date", ylab = 'Diff of IR')
+plot(cad.ir.jumps$CAD3MTD156N, main = "3M tenor",xlab= "Date", ylab = 'Diff of IR')
+plot(cad.ir.jumps$CAD6MTD156N, main = "6M tenor",xlab= "Date", ylab = 'Diff of IR')
+plot(cad.ir.jumps$CAD12MD156N, main = "12M tenor",xlab= "Date", ylab = 'Diff of IR')
+title("Interest rate jumps - CAD", outer=TRUE) 
+```
+
+```{r}
+
+##Interpolation and finding difference in Ir rates
+
+#Adding missing values in between
+usd.data <- na.approx(usd.data)
+cad.data <- na.approx(cad.data)
+
+#Calculating 1day and 30 days increments in IR. This makes the date stationary
+#Finding 1 day increment of USD IR
+usd.1day.incr <- diff(usd.data)
+usd.1day.incr[is.na(usd.1day.incr)] <- 0
+cad.1day.incr <- diff(cad.data)
+cad.1day.incr[is.na(cad.1day.incr)] <- 0
+
+#Finding 30 day increment of USD IR
+usd.30day.incr <- diff(usd.data, lag=30, differences = 1)
+usd.30day.incr[is.na(usd.30day.incr)] <- 0
+cad.30day.incr <- diff(cad.data, lag=30, differences = 1)
+cad.30day.incr[is.na(cad.30day.incr)] <- 0
+
+#Plotting using dygraph - interactive plot
+
+dygraph(usd.1day.incr, main="USD IRs with 1day increments") %>% 
+  dyRangeSelector(dateWindow = c("1998-01-01", "2014-01-01"))
+
+dygraph(usd.30day.incr,main="USD IRs with 30days increments")
+
+
+dygraph(cad.1day.incr, main="CAD IRs with 1day increments")
+dygraph(cad.30day.incr, main="CAD IRs with 30days increments")
+
+dygraph(usd.1day.incr, main="USD IRs with 1day increments") %>% 
+  dyRangeSelector(dateWindow = c("1998-01-01", "2014-01-01"))
+```
+
+```{r}
+#Plotting histogram of IRs
+
+par(mfrow=c(2,2))
+hist(usd.data$USD1MTD156N, main = "Histogram of USD 1M IRs", xlab ="Interest rate", 
+     col = "gray")
+curve(dnorm(x, mean=mean(usd.data[,"USD1MTD156N"]), sd=sd(usd.data[,"USD1MTD156N"])), add=TRUE)
+hist(usd.1day.incr$USD1MTD156N, main = "Histogram of USD 1M IRs with 1day incr", xlab ="IR 1 day diff",col = "gray")
+curve(dnorm(x, mean=mean(usd.1day.incr[,"USD1MTD156N"]), sd=sd(usd.1day.incr[,"USD1MTD156N"])), add=TRUE)
+hist(usd.30day.incr$USD1MTD156N, main = "Histogram of USD 1M IRs with 30days incr", xlab ="IR 30 days diff",col = "gray")
+curve(dnorm(x, mean=mean(usd.30day.incr[,"USD1MTD156N"]), sd=sd(usd.30day.incr[,"USD1MTD156N"])), add=TRUE)
+
+
+par(mfrow=c(2,2))
+hist(cad.data$CAD12MD156N, freq =FALSE, col="slateblue1",main = "Histogram of CAD 12M IRs", xlab ="Interest rate")
+curve(dnorm(x, mean=mean(cad.data[,"CAD12MD156N"]), sd=sd(cad.data[,"CAD12MD156N"])), add=TRUE)
+hist(cad.1day.incr$CAD12MD156N,freq =FALSE, col="slateblue1", main = "Histogram of CAD 12M IRs with 1day incr", xlab ="IR 1 day diff")
+curve(dnorm(x, mean=mean(cad.1day.incr[,"CAD12MD156N"]), sd=sd(cad.1day.incr[,"CAD12MD156N"])), add=TRUE)
+hist(cad.30day.incr$CAD12MD156N,freq =FALSE, col="slateblue1", main = "Histogram of CAD 12M IRs with 30days incr", xlab ="IR 30 days diff")
+curve(dnorm(x, mean=mean(cad.30day.incr[,"CAD12MD156N"]), sd=sd(cad.30day.incr[,"CAD12MD156N"])), add=TRUE)
+```
+
+```{r}
+# CDF plot
+
+plotdist(as.numeric(usd.30day.incr$USD12MD156N), histo = TRUE, demp = TRUE)
+
+plotdist(as.numeric(cad.30day.incr$CAD12MD156N), histo = TRUE, demp = TRUE)
+
+
+```
+
+```{r}
+#Plotting average term structure
+usd.mean = colMeans(usd.data)
+cad.mean = colMeans(cad.data)
+
+
+par(mfrow=c(1,2),oma=c(0,0,2,0))
+plot(usd.mean, type="b", main = "USD", xlab = "Tenor", ylab="Mean interest rate", xaxt="n")
+axis(1, at = c(1, 2, 3 , 4), labels=c("1M","3M","6M","12M"))
+
+plot(cad.mean, type="b", main = "CAD",xlab = "Tenor", ylab="Mean interest rate", xaxt="n")
+axis(1, at = c(1, 2, 3 , 4), labels=c("1M","3M","6M","12M"))
+title("Average term structure", outer=TRUE)
+
+#Plotting standard deviation
+usd.sd <- sapply(usd.data, sd)
+cad.sd <- sapply(cad.data, sd)
+
+par(mfrow=c(1,2),oma=c(0,0,2,0))
+plot(usd.sd, type="b", main = "USD", xlab = "Tenor", ylab="SD", xaxt="n")
+axis(1, at = c(1, 2, 3 , 4), labels=c("1M","3M","6M","12M"))
+
+plot(cad.sd, type="b", main = "CAD", xlab ='Tenor', ylab="SD", xaxt="n")
+axis(1, at = c(1, 2, 3 , 4), labels=c("1M","3M","6M","12M"))
+title("Standard Deviation", outer=TRUE)
+
+```
+
+```{r}
+#correlation matrix
+par(mfrow=c(1,2),oma=c(0,0,2,0))
+corr.1d.usd <- round(cor(usd.1day.incr), 4)
+ggcorrplot(corr.1d.usd,type = "lower", outline.col = "white")
+
+corr.30d.usd <- cor(usd.30day.incr)
+ggcorrplot(corr.30d.usd,type = "lower", outline.col = "white")
+corr.30d.usd
+
+par(mfrow=c(1,2),oma=c(0,0,2,0))
+corr.1d.cad <- round(cor(cad.1day.incr), 4)
+ggcorrplot(corr.1d.cad,type = "lower", outline.col = "white")
+
+corr.30d.cad <- cor(cad.30day.incr)
+ggcorrplot(corr.30d.cad,type = "lower", outline.col = "white")
+
+```
+
+```{r}
+
+#PCA using prcomp
+
+cad.30day.pca <- prcomp(cad.30day.incr, center = TRUE,scale. = TRUE)
+summary(cad.30day.pca)
+
+usd.30day.pca <- prcomp(usd.30day.incr, center = TRUE,scale. = TRUE)
+summary(usd.30day.pca)
+
+```
+
+
+```{r}
+str(usd.30day.pca)
+str(cad.30day.pca)
+```
+
+```{r}
+usd.30day.pca$sdev^2
+cad.30day.pca$sdev^2
+
+usd.30day.pca$scale
+cad.30day.pca$scale
+
+#usd.30day.pca$rotation
+#cad.30day.pca$rotation
+#usd.30day.pca$x
+
+```
+
+```{r}
+#Scree plot to know which PC to keep
+plot(usd.30day.pca, type = "l", main="")
+plot(cad.30day.pca, type = "l", main="")
+
+#Biplot of PC1 and 2
+ggbiplot(usd.30day.pca, obs.scale = 0.5,varname.size = 5, alpha = 0.1,var.axes = TRUE)
+ggbiplot(cad.30day.pca, obs.scale = 0.5,varname.size = 5, alpha = 0.1,var.axes = TRUE)
+
+```
+
+```{r}
+#scaling  factor of USD 1d vs 30 day increments
+
+sd.usd.1d.incr.1m = sd(usd.1day.incr$USD1MTD156N) 
+sd.usd.30d.incr.1m = sd(usd.30day.incr$USD1MTD156N) 
+sd.usd.1d.incr.3m = sd(usd.1day.incr$USD3MTD156N) 
+sd.usd.30d.incr.3m = sd(usd.30day.incr$USD3MTD156N)
+sd.usd.1d.incr.6m = sd(usd.1day.incr$USD6MTD156N) 
+sd.usd.30d.incr.6m = sd(usd.30day.incr$USD6MTD156N) 
+sd.usd.1d.incr.12m = sd(usd.1day.incr$USD12MD156N) 
+sd.usd.30d.incr.12m = sd(usd.30day.incr$USD12MD156N)
+
+sd.usd.1d.incr.1m
+sd.usd.30d.incr.1m
+sd.usd.30d.incr.1m/sd.usd.1d.incr.1m
+print('-----------')
+
+sd.usd.1d.incr.3m
+sd.usd.30d.incr.3m
+sd.usd.30d.incr.3m/sd.usd.1d.incr.3m
+print('-----------')
+
+sd.usd.1d.incr.6m
+sd.usd.30d.incr.6m
+sd.usd.30d.incr.6m/sd.usd.1d.incr.6m
+print('-----------')
+
+sd.usd.1d.incr.12m 
+sd.usd.30d.incr.12m 
+sd.usd.30d.incr.12m/sd.usd.1d.incr.12m 
+print('-----------')
+
+sd.usd.1d.inc = sd(usd.1day.incr)
+sd.usd.30d.inc = sd(usd.30day.incr)
+
+sd.usd.1d.inc
+sd.usd.30d.inc
+sd.usd.30d.inc/sd.usd.1d.inc 
+
+```
+
+```{r}
+#scaling  factor of USD 1d vs 30 day increments
+
+sd.cad.1d.incr.1m = sd(cad.1day.incr$CAD1MTD156N) 
+sd.cad.30d.incr.1m = sd(cad.30day.incr$CAD1MTD156N) 
+sd.cad.1d.incr.3m = sd(cad.1day.incr$CAD3MTD156N) 
+sd.cad.30d.incr.3m = sd(cad.30day.incr$CAD3MTD156N)
+sd.cad.1d.incr.6m = sd(cad.1day.incr$CAD6MTD156N) 
+sd.cad.30d.incr.6m = sd(cad.30day.incr$CAD6MTD156N) 
+sd.cad.1d.incr.12m = sd(cad.1day.incr$CAD12MD156N) 
+sd.cad.30d.incr.12m = sd(cad.30day.incr$CAD12MD156N)
+
+sd.cad.1d.incr.1m
+sd.cad.30d.incr.1m
+sd.cad.30d.incr.1m/sd.cad.1d.incr.1m
+print('-----------')
+
+sd.cad.1d.incr.3m
+sd.cad.30d.incr.3m
+sd.cad.30d.incr.3m/sd.cad.1d.incr.3m
+print('-----------')
+
+sd.cad.1d.incr.6m
+sd.cad.30d.incr.6m
+sd.cad.30d.incr.6m/sd.cad.1d.incr.6m
+print('-----------')
+
+sd.cad.1d.incr.12m 
+sd.cad.30d.incr.12m 
+sd.cad.30d.incr.12m/sd.cad.1d.incr.12m 
+print('-----------')
+
+#sd.usd.1d.inc = sd(usd.1day.incr)
+#sd.usd.30d.inc = sd(usd.30day.incr)
+
+#sd.usd.1d.inc
+#sd.usd.30d.inc
+#sd.usd.30d.inc/sd.usd.1d.inc 
+```
+
+```{r}
+#USD
+# The loadings (or eigenvectors) are simply our rotation values.
+loadings <- usd.30day.pca$rotation
+
+# We may also want the principal components' scores (or the predicted data based on rotations). These are simply the rotated data "(the centred (and scaled if requested) data multiplied by the rotation matrix)".
+scores <- usd.30day.pca$x
+
+# We can also get the correlations among the principal components' scores and the initial data (correlation matrix). 
+correlations <- t(loadings)*usd.30day.pca$sdev
+
+#install.packages("rgl")
+library(rgl)
+
+#Plotting PC1,2 and 3 in a 3D plot
+open3d() 
+plot3d(scores[,1:3],size=2, varname.size = 5, alpha = 0.3)
+text3d(loadings[,1:3], texts=rownames(loadings), col="red")
+coords <- NULL
+for (i in 1:nrow(loadings)) {
+  coords <- rbind(coords, rbind(c(0,0,0),loadings[i,1:3]))}
+lines3d(coords, col="red", lwd=4)
+
+rgl.postscript("3PCplot.pdf","pdf")
+
+#CAD
+
+
+```
+
+```{r}
+
+#PCA using Factomine
+library("FactoMineR")
+library("factoextra")
+
+usd.pca.fact <- PCA(usd.30day.incr,graph = FALSE)
+
+#extractng variables of PCA
+usd.var <- get_pca_var(usd.pca.fact)
+
+#Cumulative % of variance to know which PC to keep
+usd.pca.fact$eig
+
+##Scree plot to know which PC to keep
+fviz_eig(usd.pca.fact, addlabels = TRUE, ylim = c(0, 100))
+
+#Plotting variables and its relationship
+fviz_pca_var(usd.pca.fact, col.var = "black")
+
+# Contributions to the principal components (to add labels to plot)
+#contributions of variables in accounting for the variability in a given principal component are expressed in percentage
+head(usd.var$contrib)
+
+# Contributions of variables to PC1 and PC2
+fviz_contrib(usd.pca.fact, choice = "var", axes = 1:2, top = 4)
+
+fviz_pca_var(usd.pca.fact, col.var = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07")
+             )
+
+fviz_pca_biplot(usd.pca.fact, geom = c("point"), col.var = "#FC4E07", 
+                title = "PCA - Biplot(USD)")
+
+```
+
+```{r}
+
+```
+
+```{r}
+cad.pca.fact <- PCA(cad.30day.incr,graph = FALSE)
+
+#extractng variables of PCA
+cad.var <- get_pca_var(cad.pca.fact)
+
+#Cumulative % of variance to know which PC to keep
+cad.pca.fact$eig
+
+##Scree plot to know which PC to keep
+fviz_eig(cad.pca.fact, addlabels = TRUE, ylim = c(0, 100))
+
+#Plotting variables and its relationship
+fviz_pca_var(cad.pca.fact, col.var = "black")
+
+# Contributions to the principal components (to add labels to plot)
+#contributions of variables in accounting for the variability in a given principal component are expressed in percentage
+head(cad.var$contrib)
+
+# Contributions of variables to PC1 and PC2
+fviz_contrib(cad.pca.fact, choice = "var", axes = 1:2, top = 4)
+
+fviz_pca_var(cad.pca.fact, col.var = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07")
+             )
+
+fviz_pca_biplot(cad.pca.fact, geom = c("point"), col.var = "#2E9FDF", 
+                title = "PCA - Biplot(CAD)")
+```
+
+```{r}
+
+
+
+
+
+```
+
+```{r}
+
+#Fitting Vasicek to USD 12M data
+require(yuima)
+
+D=setYuima(data=setData(usd.data$USD12MD156N))
+str(D@data)
+
+m1=setModel(drift="theta*(mu-x)",diffusion="sigma",  state.var="x",time.var="t",solve.var="x",xinit=3)
+
+X=simulate(m1,true.param=list(mu=3.6,sigma=4,theta=6))
+initialise=list(mu=1,sigma=2,theta=1)
+lowbound=list(mu=0,sigma=0,theta=0)
+upbound=list(mu=12,sigma=4,theta=8)
+mle=qmle(X,start=initialise,lower=lowbound,upper=upbound, print=TRUE)
+summary(mle)
+plot(X)
+```
+
+```
+```
+```{r}
+#install.packages("sde")
+#install.packages("Sim.DiffProc")
+
+#From USD 12 M tenor x0 = 3.12, mu = 4.1, var = 7, theta = 5, sigma = 3
+
+
+mu <- 4.1
+theta <- 5
+sigma <- 3
+vari <- (sigma^2)/(2*theta)
+sdi <- sqrt(vari)
+vari
+sdi
+
+drift <- expression( (theta*(mu-x)) )
+diffusion <- expression( (sigma) )
+
+Y <- snssde1d(N=1000,M=1,T=1,t0=0,x0=3,Dt=0.001,drift,
+                diffusion, Output=FALSE)
+
+plot(Y,plot.type="single", main="Vasicek model for USD 12M tenor - single path")
+abline(h=mu, col="red", lty=2)
+
+Z <- snssde1d(N=1000,M=50,T=1,t0=0,x0=3,Dt=0.001,drift,diffusion,Output=FALSE)
+plot(Z, main="Vasicek model for USD 12M tenor - multiple trajectory")
+abline(h=mu, col="red", lty=2)
+```
+
+```{r}
+
+```
+
+```{r}
+#USD 1M using yuima
+
+D1=setYuima(data=setData(usd.data$USD1MTD156N))
+str(D1@data)
+
+options(warn=-1)# Suppress Warnings from R
+require(yuima)
+
+#Adding Gaussian jumps to match real life time of jump is Poisson dist
+grid=setSampling(Terminal=1,n=1000)
+jump=list(intensity="7",df=list("dnorm(z,0,0.2)"))
+m1=setModel(drift="theta*(mu-x)",diffusion="sigma",
+ state.var="x",time.var="t",solve.var="x",xinit=2.3, 
+jump.coeff="1",measure=jump , measure.type="CP")
+X=simulate(m1,true.param=list(mu=3.6,sigma=3,theta=5),sampling=grid)
+
+initialise=list(mu=1,sigma=1,theta=1)
+lowbound=list(mu=0,sigma=0,theta=0)
+upbound=list(mu=12,sigma=4,theta=8)
+mle=qmle(X,start=initialise,lower=lowbound,upper=upbound)
+summary(mle)
+plot(X)
+
+```
+
+```{r}
+# A multi-dimensional (correlated) diffusion process. 
+T <- 1
+Terminal <-1
+n <- 1000
+delta <- Terminal/n
+## A multi-dimensional (correlated) diffusion process. 
+## To describe the following model: 
+## X=(X1,X2,X3); dXt = U(t,Xt)dt + V(t)dWt
+## For drift coeffcient
+U <- c("-x1","-2*x2","-t*x3")
+## For process 1
+diff.coef.1 <- function(t) 0.5*sqrt(t)
+## For process 2
+diff.coef.2 <- function(t) sqrt(t)
+## For process 3
+diff.coef.3 <- function(t) 2*sqrt(t)
+## correlation
+cor.rho <- function(t) sqrt(1/2)
+## coefficient matrix for diffusion term
+V <- matrix( c( "diff.coef.1(t)",
+               "diff.coef.2(t) * cor.rho(t)",
+               "diff.coef.3(t) * cor.rho(t)",
+               "",
+               "diff.coef.2(t)",
+               "diff.coef.3(t) * sqrt(1-cor.rho(t)^2)",
+               "diff.coef.1(t) * cor.rho(t)",
+               "",
+               "diff.coef.3(t)" 
+               ), 3, 3)
+## Model sde using "setModel" function
+cor.mod <- setModel(drift = U, diffusion = V,
+                    solve.variable=c("x1","x2","x3") )
+str(cor.mod)
+## Set the `yuima' object.
+set.seed(123)
+obj.sampling <- setSampling(Initial=0, Terminal=Terminal, n=n)
+yuima.obj <- setYuima(model=cor.mod, sampling=obj.sampling)
+
+##use original dW
+my.dW <- rnorm(n * yuima.obj@model@noise.number, 0, sqrt(delta))
+my.dW <- t(matrix(my.dW, nrow=n, ncol=yuima.obj@model@noise.number))
+
+## Solve SDEs using Euler-Maruyama method.
+yuima.obj.path <- simulate(yuima.obj, space.discretized=FALSE, increment.W=my.dW)
+if( !is.null(yuima.obj.path) ){
+  x11()
+  plot(yuima.obj.path, main="Multivariate SDE using eigen vectors")
+}
+
+```
+
+
